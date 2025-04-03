@@ -16,7 +16,7 @@
 //! - **Input**   
 //!   - In order to create a new, working input type you MUST implement the following traits:       
 //!   [`Hash`](core::hash::Hash), [`Debug`](core::fmt::Debug), [`Clone`](core::clone::Clone), [`Serialize`](serde::Serialize), [`Deserialize`](serde::Deserialize), [`Input`](libafl::inputs::Input)     
-//!   - To make it usable by other butterfly components, implement [`HasPackets`], [`HasLen`](libafl::bolts::HasLen)
+//!   - To make it usable by other butterfly components, implement [`HasPackets`], [`HasLen`](libafl_bolts::HasLen)
 //!   - If you want to load it from a PCAP file, implement [`HasPcapRepresentation`]
 //! - **Mutators**
 //!   - havoc: [`PacketHavocMutator`] gets a list of havoc mutators and uses [`HasHavocMutation`] to mutate a selected packet.      
@@ -84,21 +84,20 @@ pub use {event::USER_STAT_STATEGRAPH, monitor::GraphvizMonitor};
 #[cfg(test)]
 mod tests {
     use super::*;
-    use libafl::{
-        bolts::{
+    use libafl_bolts::{
             core_affinity::Cores,
-            launcher::Launcher,
             rands::StdRand,
             shmem::{ShMemProvider, StdShMemProvider},
-            tuples::tuple_list,
+            tuples::{tuple_list, RefIndexable},
             HasLen,
-        },
-        corpus::InMemoryCorpus,
-        events::{EventConfig, SimpleEventManager},
+        };
+    use libafl::{
+        corpus::{CorpusId, InMemoryCorpus},
+        events::{EventConfig, Launcher, SimpleEventManager},
         executors::{Executor, ExitKind, HasObservers},
         feedbacks::CrashFeedback,
         inputs::{BytesInput, Input},
-        mutators::{MutationResult, MutatorsTuple},
+        mutators::{MutationId, MutationResult, MutatorsTuple},
         observers::ObserversTuple,
         schedulers::queue::QueueScheduler,
         stages::StdMutationalStage,
@@ -120,15 +119,15 @@ mod tests {
     where
         S: HasRand + HasMaxSize,
     {
-        fn mutate_crossover_insert(&mut self, state: &mut S, other: &Self, stage_idx: i32) -> Result<MutationResult, Error> {
+        fn mutate_crossover_insert(&mut self, state: &mut S, other: &Self) -> Result<MutationResult, Error> {
             match self {
                 PacketType::A(data) => match other {
-                    PacketType::A(other_data) => data.mutate_crossover_insert(state, other_data, stage_idx),
+                    PacketType::A(other_data) => data.mutate_crossover_insert(state, other_data),
                     PacketType::B(_) => Ok(MutationResult::Skipped),
                 },
                 PacketType::B(data) => match other {
                     PacketType::A(_) => Ok(MutationResult::Skipped),
-                    PacketType::B(other_data) => data.mutate_crossover_insert(state, other_data, stage_idx),
+                    PacketType::B(other_data) => data.mutate_crossover_insert(state, other_data),
                 },
             }
         }
@@ -138,15 +137,15 @@ mod tests {
     where
         S: HasRand + HasMaxSize,
     {
-        fn mutate_crossover_replace(&mut self, state: &mut S, other: &Self, stage_idx: i32) -> Result<MutationResult, Error> {
+        fn mutate_crossover_replace(&mut self, state: &mut S, other: &Self) -> Result<MutationResult, Error> {
             match self {
                 PacketType::A(data) => match other {
-                    PacketType::A(other_data) => data.mutate_crossover_replace(state, other_data, stage_idx),
+                    PacketType::A(other_data) => data.mutate_crossover_replace(state, other_data),
                     PacketType::B(_) => Ok(MutationResult::Skipped),
                 },
                 PacketType::B(data) => match other {
                     PacketType::A(_) => Ok(MutationResult::Skipped),
-                    PacketType::B(other_data) => data.mutate_crossover_replace(state, other_data, stage_idx),
+                    PacketType::B(other_data) => data.mutate_crossover_replace(state, other_data),
                 },
             }
         }
@@ -156,15 +155,15 @@ mod tests {
     where
         S: HasRand + HasMaxSize,
     {
-        fn mutate_splice(&mut self, state: &mut S, other: &Self, stage_idx: i32) -> Result<MutationResult, Error> {
+        fn mutate_splice(&mut self, state: &mut S, other: &Self) -> Result<MutationResult, Error> {
             match self {
                 PacketType::A(data) => match other {
-                    PacketType::A(other_data) => data.mutate_splice(state, other_data, stage_idx),
+                    PacketType::A(other_data) => data.mutate_splice(state, other_data),
                     PacketType::B(_) => Ok(MutationResult::Skipped),
                 },
                 PacketType::B(data) => match other {
                     PacketType::A(_) => Ok(MutationResult::Skipped),
-                    PacketType::B(other_data) => data.mutate_splice(state, other_data, stage_idx),
+                    PacketType::B(other_data) => data.mutate_splice(state, other_data),
                 },
             }
         }
@@ -175,9 +174,9 @@ mod tests {
         MT: MutatorsTuple<BytesInput, S>,
         S: HasRand + HasMaxSize,
     {
-        fn mutate_havoc(&mut self, state: &mut S, mutations: &mut MT, mutation: usize, stage_idx: i32) -> Result<MutationResult, Error> {
+        fn mutate_havoc(&mut self, state: &mut S, mutations: &mut MT, mutation: MutationId) -> Result<MutationResult, Error> {
             match self {
-                PacketType::A(data) | PacketType::B(data) => mutations.get_and_mutate(mutation, state, data, stage_idx),
+                PacketType::A(data) | PacketType::B(data) => mutations.get_and_mutate(mutation, state, data),
             }
         }
     }
@@ -187,7 +186,7 @@ mod tests {
         packets: Vec<PacketType>,
     }
     impl Input for PacketInput {
-        fn generate_name(&self, _idx: usize) -> String {
+        fn generate_name(&self, _id: Option<CorpusId>) -> String {
             todo!();
         }
     }
@@ -259,16 +258,18 @@ mod tests {
             Ok(ExitKind::Ok)
         }
     }
-    impl<OT, S> HasObservers<PacketInput, OT, S> for ExampleExecutor<OT, S>
+    impl<OT, S> HasObservers for ExampleExecutor<OT, S>
     where
         OT: ObserversTuple<PacketInput, S>,
     {
-        fn observers(&self) -> &OT {
-            &self.observers
+        type Observers = OT;
+
+        fn observers(&self) -> RefIndexable<&OT, OT> {
+            RefIndexable::from(&self.observers)
         }
 
-        fn observers_mut(&mut self) -> &mut OT {
-            &mut self.observers
+        fn observers_mut(&mut self) -> RefIndexable<&mut OT, OT> {
+            RefIndexable::from(&mut self.observers)
         }
     }
 
@@ -335,7 +336,7 @@ mod tests {
         packets: Vec<BytesInput>,
     }
     impl Input for RawInput {
-        fn generate_name(&self, _idx: usize) -> String {
+        fn generate_name(&self, _id: Option<CorpusId>) -> String {
             todo!();
         }
     }
@@ -405,16 +406,17 @@ mod tests {
             Ok(ExitKind::Ok)
         }
     }
-    impl<OT, S> HasObservers<RawInput, OT, S> for RawExecutor<OT, S>
+    impl<OT, S> HasObservers for RawExecutor<OT, S>
     where
         OT: ObserversTuple<RawInput, S>,
     {
-        fn observers(&self) -> &OT {
-            &self.observers
+        type Observers = OT;
+        fn observers(&self) -> RefIndexable<&Self::Observers, Self::Observers> {
+            RefIndexable::from(&self.observers)
         }
 
-        fn observers_mut(&mut self) -> &mut OT {
-            &mut self.observers
+        fn observers_mut(&mut self) -> RefIndexable<&mut Self::Observers, Self::Observers> {
+            RefIndexable::from(&mut self.observers)
         }
     }
 

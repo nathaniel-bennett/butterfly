@@ -1,11 +1,11 @@
+use libafl_bolts::{rands::Rand, Named};
 use libafl::{
-    bolts::rands::Rand,
     inputs::Input,
-    mutators::{ComposedByMutations, MutationResult, Mutator, MutatorsTuple, ScheduledMutator},
+    mutators::{ComposedByMutations, MutationId, MutationResult, Mutator, MutatorsTuple, ScheduledMutator},
     state::HasRand,
     Error,
 };
-use std::marker::PhantomData;
+use std::{borrow::Cow, marker::PhantomData, num::NonZero};
 
 /// A mutation scheduler for butterflys mutators.
 ///
@@ -40,18 +40,31 @@ where
     }
 }
 
-impl<I, MT, S> ComposedByMutations<I, MT, S> for PacketMutationScheduler<I, MT, S>
+impl<I, MT, S> ComposedByMutations for PacketMutationScheduler<I, MT, S>
 where
     I: Input,
     MT: MutatorsTuple<I, S>,
     S: HasRand,
 {
-    fn mutations(&self) -> &MT {
+    type Mutations = MT;
+
+    fn mutations(&self) -> &Self::Mutations {
         &self.mutations
     }
 
     fn mutations_mut(&mut self) -> &mut MT {
         &mut self.mutations
+    }
+}
+
+impl<I, MT, S> Named for PacketMutationScheduler<I, MT, S>
+where
+    I: Input,
+    MT: MutatorsTuple<I, S>,
+    S: HasRand,
+{
+    fn name(&self) -> &Cow<'static, str> {
+        &Cow::Borrowed("PacketMutationScheduler")
     }
 }
 
@@ -61,12 +74,12 @@ where
     MT: MutatorsTuple<I, S>,
     S: HasRand,
 {
-    fn mutate(&mut self, state: &mut S, input: &mut I, stage_idx: i32) -> Result<MutationResult, Error> {
-        self.scheduled_mutate(state, input, stage_idx)
+    fn mutate(&mut self, state: &mut S, input: &mut I) -> Result<MutationResult, Error> {
+        self.scheduled_mutate(state, input)
     }
 }
 
-impl<I, MT, S> ScheduledMutator<I, MT, S> for PacketMutationScheduler<I, MT, S>
+impl<I, MT, S> ScheduledMutator<I, S> for PacketMutationScheduler<I, MT, S>
 where
     I: Input,
     MT: MutatorsTuple<I, S>,
@@ -76,16 +89,18 @@ where
         1
     }
 
-    fn schedule(&self, state: &mut S, _input: &I) -> usize {
-        state.rand_mut().below(self.mutations.len() as u64) as usize
+    fn schedule(&self, state: &mut S, _input: &I) -> MutationId {
+        MutationId::from(
+            state.rand_mut().below(NonZero::new(self.mutations.len()).unwrap()) as usize
+        )
     }
 
-    fn scheduled_mutate(&mut self, state: &mut S, input: &mut I, stage_idx: i32) -> Result<MutationResult, Error> {
+    fn scheduled_mutate(&mut self, state: &mut S, input: &mut I) -> Result<MutationResult, Error> {
         let mut result = MutationResult::Skipped;
 
         while result == MutationResult::Skipped {
             let mutation = self.schedule(state, input);
-            result = self.mutations.get_and_mutate(mutation, state, input, stage_idx)?;
+            result = self.mutations.get_and_mutate(mutation, state, input)?;
         }
 
         Ok(result)

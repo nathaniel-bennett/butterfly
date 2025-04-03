@@ -1,8 +1,7 @@
 use crate::event::{USER_STAT_EDGES, USER_STAT_NODES};
-use libafl::{
-    bolts::{current_time, format_duration_hms},
-    monitors::{ClientStats, Monitor, UserStats},
-};
+use libafl_bolts::{current_time, format_duration_hms, ClientId};
+use libafl::monitors::Monitor;
+use libafl::monitors::{ClientStats, UserStats, UserStatsValue};
 use std::time::Duration;
 
 #[cfg(feature = "graphviz")]
@@ -18,26 +17,26 @@ use {crate::event::USER_STAT_STATEGRAPH, std::fs::File, std::io::Write, std::pat
 /// and then you can invoke the given functions in `YourMonitor::display()`.
 pub trait HasStateStats: Monitor {
     /// Helper function used by the other functions.
-    fn calculate_average(&mut self, stat: &str) -> u64 {
-        let mut sum = 0;
+    fn calculate_average(&mut self, stat: &str) -> UserStatsValue {
+        let mut sum = UserStatsValue::Number(0);
         let stats = self.client_stats_mut();
 
         for client_stat in stats.iter_mut() {
-            if let Some(UserStats::Number(val)) = client_stat.get_user_stats(stat) {
-                sum += val;
+            if let Some(user_stats) = client_stat.get_user_stats(stat) {
+                sum = sum.stats_add(user_stats.value()).unwrap();
             }
         }
 
-        sum / stats.len() as u64
+        sum.stats_div(stats.len()).unwrap()
     }
 
     /// Get the average number of vertices in the state-graphs across all instances.
-    fn avg_statemachine_nodes(&mut self) -> u64 {
+    fn avg_statemachine_nodes(&mut self) -> UserStatsValue {
         self.calculate_average(USER_STAT_NODES)
     }
 
     /// Get the average number of edges in the state-graphs across all instances.
-    fn avg_statemachine_edges(&mut self) -> u64 {
+    fn avg_statemachine_edges(&mut self) -> UserStatsValue {
         self.calculate_average(USER_STAT_EDGES)
     }
 }
@@ -81,11 +80,15 @@ impl Monitor for StateMonitor {
         &self.client_stats
     }
 
-    fn start_time(&mut self) -> Duration {
+    fn start_time(&self) -> Duration {
         self.start_time
     }
 
-    fn display(&mut self, msg: String, _sender: u32) {
+    fn set_start_time(&mut self, start: Duration) {
+        self.start_time = start;
+    }
+
+    fn display(&mut self, msg: &str, _sender: ClientId) {
         let num_nodes = self.avg_statemachine_nodes();
         let num_edges = self.avg_statemachine_edges();
         let corpus_size = self.max_corpus_size();

@@ -1,16 +1,16 @@
 use crate::input::HasPackets;
+use libafl_bolts::{
+    rands::Rand,
+    tuples::tuple_list,
+    HasLen, Named,
+};
 use libafl::{
-    bolts::{
-        rands::Rand,
-        tuples::{tuple_list, Named},
-        HasLen,
-    },
     inputs::{bytes::BytesInput, Input},
-    mutators::{mutations::*, MutationResult, Mutator, MutatorsTuple},
+    mutators::{mutations::*, MutationId, MutationResult, Mutator, MutatorsTuple},
     state::{HasMaxSize, HasRand},
     Error,
 };
-use std::marker::PhantomData;
+use std::{borrow::Cow, marker::PhantomData, num::NonZero};
 
 /// Tuple of all havoc mutators in libafl that get exactly one input.
 ///
@@ -110,10 +110,10 @@ pub fn supported_havoc_mutations() -> SupportedHavocMutationsType {
 ///    MT: MutatorsTuple<BytesInput, S>,
 ///    S: HasRand + HasMaxSize,
 /// {
-///    fn mutate_havoc(&mut self, state: &mut S, mutations: &mut MT, mutation: usize, stage_idx: i32) -> Result<MutationResult, Error> {
+///    fn mutate_havoc(&mut self, state: &mut S, mutations: &mut MT, mutation: usize) -> Result<MutationResult, Error> {
 ///        match self {
 ///            PacketType::A(data) |
-///            PacketType::B(data) => mutations.get_and_mutate(mutation, state, data, stage_idx),
+///            PacketType::B(data) => mutations.get_and_mutate(mutation, state, data),
 ///        }
 ///    }
 /// }
@@ -130,8 +130,7 @@ where
     /// - `state`: libafls state
     /// - `mutations`: tuple of havoc mutators
     /// - `mutation`: index into the tuple, the mutator to execute
-    /// - `stage_idx`: stage index from libafl
-    fn mutate_havoc(&mut self, state: &mut S, mutations: &mut MT, mutation: usize, stage_idx: i32) -> Result<MutationResult, Error>;
+    fn mutate_havoc(&mut self, state: &mut S, mutations: &mut MT, mutation: MutationId) -> Result<MutationResult, Error>;
 }
 
 impl<MT, S> HasHavocMutation<MT, S> for BytesInput
@@ -139,8 +138,8 @@ where
     MT: MutatorsTuple<BytesInput, S>,
     S: HasRand + HasMaxSize,
 {
-    fn mutate_havoc(&mut self, state: &mut S, mutations: &mut MT, mutation: usize, stage_idx: i32) -> Result<MutationResult, Error> {
-        mutations.get_and_mutate(mutation, state, self, stage_idx)
+    fn mutate_havoc(&mut self, state: &mut S, mutations: &mut MT, mutation: MutationId) -> Result<MutationResult, Error> {
+        mutations.get_and_mutate(mutation, state, self)
     }
 }
 
@@ -177,12 +176,12 @@ where
 
     /// Get the number of stacked mutations to apply
     fn iterations(&self, state: &mut S) -> u64 {
-        state.rand_mut().below(16) as u64
+        state.rand_mut().below(NonZero::new(16).unwrap()) as u64
     }
 
     /// Get the next mutation to apply (index into mutation list)
-    fn schedule(&self, state: &mut S) -> usize {
-        state.rand_mut().below(self.mutations.len() as u64) as usize
+    fn schedule(&self, state: &mut S) -> MutationId {
+        MutationId::from(state.rand_mut().below(NonZero::new(self.mutations.len()).unwrap()))
     }
 }
 
@@ -193,19 +192,19 @@ where
     MT: MutatorsTuple<BytesInput, S>,
     S: HasRand + HasMaxSize,
 {
-    fn mutate(&mut self, state: &mut S, input: &mut I, stage_idx: i32) -> Result<MutationResult, Error> {
+    fn mutate(&mut self, state: &mut S, input: &mut I) -> Result<MutationResult, Error> {
         if input.len() == 0 {
             return Ok(MutationResult::Skipped);
         }
 
         let mut result = MutationResult::Skipped;
         let iters = self.iterations(state);
-        let packet = state.rand_mut().below(input.len() as u64) as usize;
+        let packet = state.rand_mut().below(NonZero::new(input.len()).unwrap()) as usize;
 
         for _ in 0..iters {
             let mutation = self.schedule(state);
 
-            let outcome = input.packets_mut()[packet].mutate_havoc(state, &mut self.mutations, mutation, stage_idx)?;
+            let outcome = input.packets_mut()[packet].mutate_havoc(state, &mut self.mutations, mutation)?;
 
             if outcome == MutationResult::Mutated {
                 result = MutationResult::Mutated;
@@ -223,7 +222,7 @@ where
     MT: MutatorsTuple<BytesInput, S>,
     S: HasRand + HasMaxSize,
 {
-    fn name(&self) -> &str {
-        "PacketHavocMutator"
+    fn name(&self) -> &Cow<'static, str> {
+        &Cow::Borrowed("PacketHavocMutator")
     }
 }

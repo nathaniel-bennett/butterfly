@@ -1,6 +1,8 @@
 use ahash::RandomState;
-use libafl::{bolts::tuples::Named, executors::ExitKind, observers::Observer, Error};
+use libafl_bolts::Named;
+use libafl::{executors::ExitKind, observers::Observer, Error};
 use serde::{Deserialize, Serialize};
+use std::borrow::Cow;
 use std::cmp::Eq;
 use std::collections::{HashMap, HashSet};
 use std::fmt::{Debug, Write};
@@ -152,8 +154,9 @@ impl<PS> Named for StateObserver<PS>
 where
     PS: Clone + Debug + Hash + Eq + Serialize + for<'a> Deserialize<'a>,
 {
-    fn name(&self) -> &str {
-        &self.name
+    fn name(&self) -> &Cow<'static, str> {
+        // self.name
+        &Cow::Borrowed("StateObserver") // TODO: BUG: is this correct?
     }
 }
 

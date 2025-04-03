@@ -103,7 +103,7 @@ where
             if path.extension() == Some(OsStr::new("pcapng")) || path.extension() == Some(OsStr::new("pcap")) {
                 println!("[butterfly] Loading pcap {}...", path.display());
                 let input = I::from_pcap(Capture::from_file(path).expect("invalid pcap format"))?;
-                let _ = fuzzer.evaluate_input(state, executor, mgr, input)?;
+                let _ = fuzzer.evaluate_input(state, executor, mgr, &input)?;
             }
         } else if attr.is_dir() {
             load_pcaps(state, fuzzer, executor, mgr, path)?;

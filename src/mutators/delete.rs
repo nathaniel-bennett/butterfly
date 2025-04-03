@@ -1,12 +1,12 @@
 use crate::input::HasPackets;
+use libafl_bolts::{rands::Rand, HasLen, Named};
 use libafl::{
-    bolts::{rands::Rand, tuples::Named, HasLen},
     inputs::Input,
     mutators::{MutationResult, Mutator},
     state::{HasMaxSize, HasRand},
     Error,
 };
-use std::marker::PhantomData;
+use std::{borrow::Cow, marker::PhantomData, num::NonZero};
 
 /// A mutator that deletes a single, random packet.
 ///
@@ -38,12 +38,12 @@ where
     I: Input + HasLen + HasPackets<P>,
     S: HasRand + HasMaxSize,
 {
-    fn mutate(&mut self, state: &mut S, input: &mut I, _stage_idx: i32) -> Result<MutationResult, Error> {
+    fn mutate(&mut self, state: &mut S, input: &mut I) -> Result<MutationResult, Error> {
         if input.len() <= self.min_packets {
             return Ok(MutationResult::Skipped);
         }
 
-        let idx = state.rand_mut().below(input.len() as u64) as usize;
+        let idx = state.rand_mut().below(NonZero::new(input.len()).unwrap()) as usize;
         input.packets_mut().remove(idx);
 
         Ok(MutationResult::Mutated)
@@ -51,7 +51,7 @@ where
 }
 
 impl<P> Named for PacketDeleteMutator<P> {
-    fn name(&self) -> &str {
-        "PacketDeleteMutator"
+    fn name(&self) -> &Cow<'static, str> {
+        &Cow::Borrowed("PacketDeleteMutator")
     }
 }

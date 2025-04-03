@@ -6,19 +6,19 @@ use crate::{
 #[cfg(feature = "graphviz")]
 use crate::event::USER_STAT_STATEGRAPH;
 
+use libafl_bolts::Named;
 use libafl::{
-    bolts::tuples::Named,
     events::{Event, EventFirer},
     executors::ExitKind,
-    feedbacks::{Feedback, HasObserverName},
+    feedbacks::{Feedback, StateInitializer},
     inputs::Input,
-    monitors::UserStats,
+    monitors::{AggregatorOps, UserStats, UserStatsValue},
     observers::ObserversTuple,
     state::HasClientPerfMonitor,
     Error,
 };
 use serde::{Deserialize, Serialize};
-use std::cmp::Eq;
+use std::{borrow::Cow, cmp::Eq};
 use std::fmt::Debug;
 use std::hash::Hash;
 use std::marker::PhantomData;
@@ -50,11 +50,23 @@ impl<PS> Named for StateFeedback<PS>
 where
     PS: Debug + Clone + Eq + Hash + Serialize + for<'a> Deserialize<'a>,
 {
-    fn name(&self) -> &str {
-        "StateFeedback"
+    fn name(&self) -> &Cow<'static, str> {
+        &Cow::Borrowed("StateFeedback")
     }
 }
 
+impl<PS, S> StateInitializer<S> for StateFeedback<PS>
+where
+    PS: Debug + Clone + Eq + Hash + Serialize + for<'a> Deserialize<'a>,
+{
+    /// Initializes the feedback state.
+    /// This method is called after that the `State` is created.
+    fn init_state(&mut self, _state: &mut S) -> Result<(), Error> {
+        Ok(()) // TODO: BUG: does this need anything else?
+    }
+}
+
+/*
 impl<PS> HasObserverName for StateFeedback<PS>
 where
     PS: Debug + Clone + Eq + Hash + Serialize + for<'a> Deserialize<'a>,
@@ -63,17 +75,17 @@ where
         &self.observer_name
     }
 }
+*/
 
-impl<I, S, PS> Feedback<I, S> for StateFeedback<PS>
+impl<EM, I, OT, S, PS> Feedback<EM, I, OT, S> for StateFeedback<PS>
 where
+    EM: EventFirer<I, S>,
     I: Input,
+    OT: ObserversTuple<I, S>,
     S: HasClientPerfMonitor,
     PS: Debug + Clone + Eq + Hash + Serialize + for<'a> Deserialize<'a>,
 {
-    fn is_interesting<EM, OT>(&mut self, state: &mut S, mgr: &mut EM, _input: &I, observers: &OT, _exit_kind: &ExitKind) -> Result<bool, Error>
-    where
-        EM: EventFirer<I>,
-        OT: ObserversTuple<I, S>,
+    fn is_interesting(&mut self, state: &mut S, mgr: &mut EM, _input: &I, observers: &OT, _exit_kind: &ExitKind) -> Result<bool, Error>
     {
         let state_observer = observers.match_name::<StateObserver<PS>>(&self.observer_name).unwrap();
 
@@ -85,16 +97,16 @@ where
             mgr.fire(
                 state,
                 Event::UpdateUserStats {
-                    name: USER_STAT_NODES.to_string(),
-                    value: UserStats::Number(nodes as u64),
+                    name: Cow::Borrowed(USER_STAT_NODES),
+                    value: UserStats::new(UserStatsValue::Number(nodes as u64), AggregatorOps::Avg), // TODO: BUG: is AggregatorOps::Avg correct here?
                     phantom: PhantomData,
                 },
             )?;
             mgr.fire(
                 state,
                 Event::UpdateUserStats {
-                    name: USER_STAT_EDGES.to_string(),
-                    value: UserStats::Number(edges as u64),
+                    name: Cow::Borrowed(USER_STAT_EDGES),
+                    value: UserStats::new(UserStatsValue::Number(edges as u64), AggregatorOps::Avg), // TODO: BUG: is AggregatorOps::Avg correct here?
                     phantom: PhantomData,
                 },
             )?;

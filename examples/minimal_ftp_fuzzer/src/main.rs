@@ -1,11 +1,12 @@
-use libafl::{
-    Error, StdFuzzer, Fuzzer,
-    inputs::{BytesInput, Input, HasBytesVec},
-    bolts::{
+
+use libafl_bolts::{
         HasLen,
         rands::StdRand,
         tuples::{tuple_list, MatchName},
-    },
+    };
+use libafl::{
+    Error, StdFuzzer, Fuzzer,
+    inputs::{BytesInput, Input, HasBytesVec},
     observers::ObserversTuple,
     executors::{Executor, ExitKind, HasObservers},
     events::SimpleEventManager,
@@ -89,10 +90,10 @@ impl<S> HasCrossoverInsertMutation<S> for FTPCommand
 where
     S: HasRand + HasMaxSize,
 {
-    fn mutate_crossover_insert(&mut self, state: &mut S, other: &Self, stage_idx: i32) -> Result<MutationResult, Error> {
+    fn mutate_crossover_insert(&mut self, state: &mut S, other: &Self) -> Result<MutationResult, Error> {
         if let Some(data) = self.inner_data_mut() {
             if let Some(other_data) = other.inner_data() {
-                return data.mutate_crossover_insert(state, other_data, stage_idx);
+                return data.mutate_crossover_insert(state, other_data);
             }
         }
         
@@ -104,10 +105,10 @@ impl<S> HasCrossoverReplaceMutation<S> for FTPCommand
 where
     S: HasRand + HasMaxSize,
 {
-    fn mutate_crossover_replace(&mut self, state: &mut S, other: &Self, stage_idx: i32) -> Result<MutationResult, Error> {
+    fn mutate_crossover_replace(&mut self, state: &mut S, other: &Self) -> Result<MutationResult, Error> {
         if let Some(data) = self.inner_data_mut() {
             if let Some(other_data) = other.inner_data() {
-                return data.mutate_crossover_replace(state, other_data, stage_idx);
+                return data.mutate_crossover_replace(state, other_data);
             }
         }
         
@@ -119,10 +120,10 @@ impl<S> HasSpliceMutation<S> for FTPCommand
 where
     S: HasRand + HasMaxSize,
 {
-    fn mutate_splice(&mut self, state: &mut S, other: &Self, stage_idx: i32) -> Result<MutationResult, Error> {
+    fn mutate_splice(&mut self, state: &mut S, other: &Self) -> Result<MutationResult, Error> {
         if let Some(data) = self.inner_data_mut() {
             if let Some(other_data) = other.inner_data() {
-                return data.mutate_splice(state, other_data, stage_idx);
+                return data.mutate_splice(state, other_data);
             }
         }
         
@@ -135,9 +136,9 @@ where
    MT: MutatorsTuple<BytesInput, S>,
    S: HasRand + HasMaxSize,
 {
-    fn mutate_havoc(&mut self, state: &mut S, mutations: &mut MT, mutation: usize, stage_idx: i32) -> Result<MutationResult, Error> {
+    fn mutate_havoc(&mut self, state: &mut S, mutations: &mut MT, mutation: usize) -> Result<MutationResult, Error> {
         if let Some(data) = self.inner_data_mut() {
-            data.mutate_havoc(state, mutations, mutation, stage_idx)
+            data.mutate_havoc(state, mutations, mutation)
         } else {
             Ok(MutationResult::Skipped)
         }

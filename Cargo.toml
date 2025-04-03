@@ -15,16 +15,14 @@ include = [
 ]
 
 [dependencies]
-libafl = "0.8"
-pcap = { version = "0.9", features = [] }
+libafl = { version = "0.15", git = "https://github.com/nathaniel-bennett/LibAFL", features = ["default", "introspection"] }
+libafl_bolts = { version = "0.15", git = "https://github.com/nathaniel-bennett/LibAFL" }
+pcap = { version = "2.2", features = [] }
 serde = "1.0"
 ahash = "0.7"
 
 [features]
 default = []
-
-# Only needed for building documentation on docs.rs
-docs-rs = ["pcap/docs-rs"]
 
 # Enables the GraphvizMonitor
 graphviz = []

@@ -1,12 +1,12 @@
 use crate::input::HasPackets;
+use libafl_bolts::{rands::Rand, HasLen, Named};
 use libafl::{
-    bolts::{rands::Rand, tuples::Named, HasLen},
     inputs::Input,
     mutators::{MutationResult, Mutator},
     state::HasRand,
     Error,
 };
-use std::marker::PhantomData;
+use std::{borrow::Cow, marker::PhantomData, num::NonZero};
 
 /// A mutator that swaps two random packets.
 pub struct PacketReorderMutator<P> {
@@ -27,13 +27,13 @@ where
     I: Input + HasLen + HasPackets<P>,
     S: HasRand,
 {
-    fn mutate(&mut self, state: &mut S, input: &mut I, _stage_idx: i32) -> Result<MutationResult, Error> {
+    fn mutate(&mut self, state: &mut S, input: &mut I) -> Result<MutationResult, Error> {
         if input.len() <= 1 {
             return Ok(MutationResult::Skipped);
         }
 
-        let from = state.rand_mut().below(input.len() as u64) as usize;
-        let to = state.rand_mut().below(input.len() as u64) as usize;
+        let from = state.rand_mut().below(NonZero::new(input.len()).unwrap()) as usize;
+        let to = state.rand_mut().below(NonZero::new(input.len()).unwrap()) as usize;
 
         if from == to {
             return Ok(MutationResult::Skipped);
@@ -46,7 +46,7 @@ where
 }
 
 impl<P> Named for PacketReorderMutator<P> {
-    fn name(&self) -> &str {
-        "PacketReorderMutator"
+    fn name(&self) -> &Cow<'static, str> {
+        &Cow::Borrowed("PacketReorderMutator")
     }
 }

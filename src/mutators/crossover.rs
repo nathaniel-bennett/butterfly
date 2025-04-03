@@ -1,12 +1,12 @@
 use crate::input::HasPackets;
+use libafl_bolts::{rands::Rand, HasLen, Named};
 use libafl::{
-    bolts::{rands::Rand, tuples::Named, HasLen},
-    inputs::{BytesInput, HasBytesVec, Input},
+    inputs::{BytesInput, Input},
     mutators::{MutationResult, Mutator},
     state::{HasMaxSize, HasRand},
     Error,
 };
-use std::marker::PhantomData;
+use std::{borrow::Cow, marker::PhantomData, num::NonZero};
 
 /// Signifies that a packet type supports the [`PacketCrossoverInsertMutator`] mutator.    
 ///
@@ -31,18 +31,18 @@ use std::marker::PhantomData;
 /// where
 ///    S: HasRand + HasMaxSize,
 /// {
-///    fn mutate_crossover_insert(&mut self, state: &mut S, other: &Self, stage_idx: i32) -> Result<MutationResult, Error> {
+///    fn mutate_crossover_insert(&mut self, state: &mut S, other: &Self) -> Result<MutationResult, Error> {
 ///        match self {
 ///            PacketType::A(data) => {
 ///                match other {
-///                    PacketType::A(other_data) => data.mutate_crossover_insert(state, other_data, stage_idx),
+///                    PacketType::A(other_data) => data.mutate_crossover_insert(state, other_data),
 ///                    PacketType::B(_) => Ok(MutationResult::Skipped),
 ///                }
 ///            },
 ///            PacketType::B(data) => {
 ///                match other {
 ///                    PacketType::A(_) => Ok(MutationResult::Skipped),
-///                    PacketType::B(other_data) => data.mutate_crossover_insert(state, other_data, stage_idx),
+///                    PacketType::B(other_data) => data.mutate_crossover_insert(state, other_data),
 ///                }
 ///            },
 ///        }
@@ -57,33 +57,33 @@ where
     /// Perform one crossover mutation where bytes from `other` are inserted into `self`
     ///
     /// The arguments to this function are similar to [`Mutator::mutate()`](libafl::mutators::Mutator::mutate).
-    fn mutate_crossover_insert(&mut self, state: &mut S, other: &Self, stage_idx: i32) -> Result<MutationResult, Error>;
+    fn mutate_crossover_insert(&mut self, state: &mut S, other: &Self) -> Result<MutationResult, Error>;
 }
 
 impl<S> HasCrossoverInsertMutation<S> for BytesInput
 where
     S: HasRand + HasMaxSize,
 {
-    fn mutate_crossover_insert(&mut self, state: &mut S, other: &Self, _stage_idx: i32) -> Result<MutationResult, Error> {
-        let self_len = self.len();
-        let other_len = other.len();
-
-        if self_len == 0 || other_len == 0 {
+    fn mutate_crossover_insert(&mut self, state: &mut S, other: &Self) -> Result<MutationResult, Error> {
+        if self.len() == 0 || other.len() == 0 {
             return Ok(MutationResult::Skipped);
         }
 
-        let from = state.rand_mut().below(other_len as u64) as usize;
-        let to = state.rand_mut().below(self_len as u64) as usize;
-        let len = state.rand_mut().below((other_len - from) as u64) as usize + 1;
+        let self_len = NonZero::new(self.len()).unwrap();
+        let other_len = NonZero::new(other.len()).unwrap();
+
+        let from = state.rand_mut().below(other_len);
+        let to = state.rand_mut().below(self_len) as usize;
+        let len = state.rand_mut().below(NonZero::new(other.len() - from).unwrap()) as usize + 1;
 
         // Make room for `len` additional bytes
-        self.bytes_mut().resize(self_len + len, 0);
+        self.as_mut().resize(usize::from(self_len) + len, 0);
 
         // Move bytes at `to` `len` places to the right
-        self.bytes_mut().copy_within(to..self_len, to + len);
+        self.as_mut().copy_within(to..self_len.into(), to + len);
 
         // Insert `from` bytes from `other` into self at index `to`
-        self.bytes_mut()[to..to + len].copy_from_slice(&other.bytes()[from..from + len]);
+        self.as_mut()[to..to + len].copy_from_slice(&other.as_ref()[from..from + len]);
 
         Ok(MutationResult::Mutated)
     }
@@ -120,13 +120,14 @@ where
     I: Input + HasLen + HasPackets<P>,
     S: HasRand + HasMaxSize,
 {
-    fn mutate(&mut self, state: &mut S, input: &mut I, stage_idx: i32) -> Result<MutationResult, Error> {
+    fn mutate(&mut self, state: &mut S, input: &mut I) -> Result<MutationResult, Error> {
         if input.len() <= 1 {
             return Ok(MutationResult::Skipped);
         }
 
-        let packet = state.rand_mut().below(input.len() as u64) as usize;
-        let other = state.rand_mut().below(input.len() as u64) as usize;
+        let input_len = NonZero::new(input.len()).unwrap();
+        let packet = state.rand_mut().below(input_len) as usize;
+        let other = state.rand_mut().below(input_len) as usize;
 
         if packet == other {
             return Ok(MutationResult::Skipped);
@@ -135,13 +136,13 @@ where
         #[cfg(feature = "safe_only")]
         {
             let other = input.packets()[other].clone();
-            input.packets_mut()[packet].mutate_crossover_insert(state, &other, stage_idx)
+            input.packets_mut()[packet].mutate_crossover_insert(state, &other)
         }
         #[cfg(not(feature = "safe_only"))]
         {
             let dst = std::ptr::addr_of_mut!(input.packets_mut()[packet]);
             let src = std::ptr::addr_of!(input.packets()[other]);
-            unsafe { dst.as_mut().unwrap().mutate_crossover_insert(state, src.as_ref().unwrap(), stage_idx) }
+            unsafe { dst.as_mut().unwrap().mutate_crossover_insert(state, src.as_ref().unwrap()) }
         }
     }
 }
@@ -151,8 +152,8 @@ where
     P: HasCrossoverInsertMutation<S> + Clone,
     S: HasRand + HasMaxSize,
 {
-    fn name(&self) -> &str {
-        "PacketCrossoverInsertMutator"
+    fn name(&self) -> &Cow<'static, str> {
+        &Cow::Borrowed("PacketCrossoverInsertMutator")
     }
 }
 
@@ -179,18 +180,18 @@ where
 /// where
 ///    S: HasRand + HasMaxSize,
 /// {
-///    fn mutate_crossover_replace(&mut self, state: &mut S, other: &Self, stage_idx: i32) -> Result<MutationResult, Error> {
+///    fn mutate_crossover_replace(&mut self, state: &mut S, other: &Self: i32) -> Result<MutationResult, Error> {
 ///        match self {
 ///            PacketType::A(data) => {
 ///                match other {
-///                    PacketType::A(other_data) => data.mutate_crossover_replace(state, other_data, stage_idx),
+///                    PacketType::A(other_data) => data.mutate_crossover_replace(state, other_data),
 ///                    PacketType::B(_) => Ok(MutationResult::Skipped),
 ///                }
 ///            },
 ///            PacketType::B(data) => {
 ///                match other {
 ///                    PacketType::A(_) => Ok(MutationResult::Skipped),
-///                    PacketType::B(other_data) => data.mutate_crossover_replace(state, other_data, stage_idx),
+///                    PacketType::B(other_data) => data.mutate_crossover_replace(state, other_data),
 ///                }
 ///            },
 ///        }
@@ -205,14 +206,14 @@ where
     /// Perform one crossover mutation where bytes in `self` are replaced by bytes from `other`.
     ///
     /// The arguments to this function are similar to [`Mutator::mutate()`](libafl::mutators::Mutator::mutate).
-    fn mutate_crossover_replace(&mut self, state: &mut S, other: &Self, stage_idx: i32) -> Result<MutationResult, Error>;
+    fn mutate_crossover_replace(&mut self, state: &mut S, other: &Self) -> Result<MutationResult, Error>;
 }
 
 impl<S> HasCrossoverReplaceMutation<S> for BytesInput
 where
     S: HasRand + HasMaxSize,
 {
-    fn mutate_crossover_replace(&mut self, state: &mut S, other: &Self, _stage_idx: i32) -> Result<MutationResult, Error> {
+    fn mutate_crossover_replace(&mut self, state: &mut S, other: &Self) -> Result<MutationResult, Error> {
         let self_len = self.len();
         let other_len = other.len();
 
@@ -220,11 +221,11 @@ where
             return Ok(MutationResult::Skipped);
         }
 
-        let from = state.rand_mut().below(other_len as u64) as usize;
-        let to = state.rand_mut().below(self_len as u64) as usize;
-        let len = 1 + state.rand_mut().below(std::cmp::min(other_len - from, self_len - to) as u64) as usize;
+        let from = state.rand_mut().below(NonZero::new(other_len).unwrap());
+        let to = state.rand_mut().below(NonZero::new(self_len).unwrap());
+        let len = 1 + state.rand_mut().below(NonZero::new(std::cmp::min(other_len - from, self_len - to)).unwrap());
 
-        self.bytes_mut()[to..to + len].copy_from_slice(&other.bytes()[from..from + len]);
+        self.as_mut()[to..to + len].copy_from_slice(&other.as_ref()[from..from + len]);
 
         Ok(MutationResult::Mutated)
     }
@@ -261,13 +262,13 @@ where
     I: Input + HasLen + HasPackets<P>,
     S: HasRand + HasMaxSize,
 {
-    fn mutate(&mut self, state: &mut S, input: &mut I, stage_idx: i32) -> Result<MutationResult, Error> {
+    fn mutate(&mut self, state: &mut S, input: &mut I) -> Result<MutationResult, Error> {
         if input.len() <= 1 {
             return Ok(MutationResult::Skipped);
         }
 
-        let packet = state.rand_mut().below(input.len() as u64) as usize;
-        let other = state.rand_mut().below(input.len() as u64) as usize;
+        let packet = state.rand_mut().below(NonZero::new(input.len()).unwrap()) as usize;
+        let other = state.rand_mut().below(NonZero::new(input.len()).unwrap()) as usize;
 
         if packet == other {
             return Ok(MutationResult::Skipped);
@@ -276,13 +277,13 @@ where
         #[cfg(feature = "safe_only")]
         {
             let other = input.packets()[other].clone();
-            input.packets_mut()[packet].mutate_crossover_replace(state, &other, stage_idx)
+            input.packets_mut()[packet].mutate_crossover_replace(state, &other)
         }
         #[cfg(not(feature = "safe_only"))]
         {
             let dst = std::ptr::addr_of_mut!(input.packets_mut()[packet]);
             let src = std::ptr::addr_of!(input.packets()[other]);
-            unsafe { dst.as_mut().unwrap().mutate_crossover_replace(state, src.as_ref().unwrap(), stage_idx) }
+            unsafe { dst.as_mut().unwrap().mutate_crossover_replace(state, src.as_ref().unwrap()) }
         }
     }
 }
@@ -292,19 +293,17 @@ where
     P: HasCrossoverReplaceMutation<S> + Clone,
     S: HasRand + HasMaxSize,
 {
-    fn name(&self) -> &str {
-        "PacketCrossoverReplaceMutator"
+    fn name(&self) -> &Cow<'static, str> {
+        &Cow::Borrowed("PacketCrossoverReplaceMutator")
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use libafl_bolts::rands::StdRand;
     use libafl::{
-        bolts::rands::StdRand,
-        inputs::BytesInput,
-        mutators::MutationResult,
-        state::{HasMaxSize, HasRand},
+        corpus::CorpusId, inputs::BytesInput, mutators::MutationResult, state::{HasMaxSize, HasRand}
     };
     extern crate test;
     use serde::{Deserialize, Serialize};
@@ -348,7 +347,7 @@ mod tests {
         packets: Vec<BytesInput>,
     }
     impl Input for TestInput {
-        fn generate_name(&self, _idx: usize) -> String {
+        fn generate_name(&self, _id: Option<CorpusId>) -> String {
             todo!();
         }
     }
@@ -374,7 +373,7 @@ mod tests {
         let b = BytesInput::new(Vec::new());
 
         for _ in 0..100 {
-            assert_eq!(a.mutate_crossover_insert(&mut state, &b, 0).unwrap(), MutationResult::Skipped);
+            assert_eq!(a.mutate_crossover_insert(&mut state, &b).unwrap(), MutationResult::Skipped);
         }
     }
 
@@ -385,8 +384,8 @@ mod tests {
 
         for _ in 0..100 {
             let mut a = BytesInput::new(b"A".to_vec());
-            assert_eq!(a.mutate_crossover_insert(&mut state, &b, 0).unwrap(), MutationResult::Mutated);
-            assert!(a.bytes() == b"AB" || a.bytes() == b"BA");
+            assert_eq!(a.mutate_crossover_insert(&mut state, &b).unwrap(), MutationResult::Mutated);
+            assert!(a.as_ref() == b"AB" || a.as_ref() == b"BA");
         }
     }
 
@@ -397,7 +396,7 @@ mod tests {
         let b = BytesInput::new(b"asdasd fasd fa sdf asdf asdfasfd asdfsadf asdfsadf asdfsa df ".to_vec());
 
         for _ in 0..100 {
-            assert_eq!(a.mutate_crossover_insert(&mut state, &b, 0).unwrap(), MutationResult::Mutated);
+            assert_eq!(a.mutate_crossover_insert(&mut state, &b).unwrap(), MutationResult::Mutated);
         }
     }
 
@@ -408,7 +407,7 @@ mod tests {
         let b = BytesInput::new(Vec::new());
 
         for _ in 0..100 {
-            assert_eq!(a.mutate_crossover_replace(&mut state, &b, 0).unwrap(), MutationResult::Skipped);
+            assert_eq!(a.mutate_crossover_replace(&mut state, &b).unwrap(), MutationResult::Skipped);
         }
     }
 
@@ -419,8 +418,8 @@ mod tests {
         let b = BytesInput::new(b"B".to_vec());
 
         for _ in 0..100 {
-            assert_eq!(a.mutate_crossover_replace(&mut state, &b, 0).unwrap(), MutationResult::Mutated);
-            assert_eq!(a.bytes(), b"B");
+            assert_eq!(a.mutate_crossover_replace(&mut state, &b).unwrap(), MutationResult::Mutated);
+            assert_eq!(a.as_ref(), b"B");
         }
     }
 
@@ -431,7 +430,7 @@ mod tests {
         let b = BytesInput::new(b"asdasd fasd fa sdf asdf asdfasfd asdfsadf asdfsadf asdfsa df ".to_vec());
 
         for _ in 0..100 {
-            assert_eq!(a.mutate_crossover_replace(&mut state, &b, 0).unwrap(), MutationResult::Mutated);
+            assert_eq!(a.mutate_crossover_replace(&mut state, &b).unwrap(), MutationResult::Mutated);
         }
     }
 
@@ -443,16 +442,16 @@ mod tests {
             packets: vec![BytesInput::new(vec![0; 4096]), BytesInput::new(vec![1; 4096])],
         };
 
-        while mutator.mutate(&mut state, &mut input, 0).unwrap() == MutationResult::Skipped {}
+        while mutator.mutate(&mut state, &mut input).unwrap() == MutationResult::Skipped {}
 
         let mut modified = false;
 
-        for b in input.packets[0].bytes() {
+        for b in input.packets[0].as_ref() {
             if *b == 1 {
                 modified = true;
             }
         }
-        for b in input.packets[1].bytes() {
+        for b in input.packets[1].as_ref() {
             if *b == 0 {
                 modified = true;
             }
@@ -471,9 +470,9 @@ mod tests {
         };
 
         b.iter(|| {
-            input.packets[0].bytes_mut().resize(4096, 0);
-            input.packets[1].bytes_mut().resize(4096, 1);
-            while mutator.mutate(&mut state, &mut input, 0).unwrap() == MutationResult::Skipped {}
+            input.packets[0].as_mut().resize(4096, 0);
+            input.packets[1].as_mut().resize(4096, 1);
+            while mutator.mutate(&mut state, &mut input).unwrap() == MutationResult::Skipped {}
         });
     }
 
@@ -485,16 +484,16 @@ mod tests {
             packets: vec![BytesInput::new(vec![0; 4096]), BytesInput::new(vec![1; 4096])],
         };
 
-        while mutator.mutate(&mut state, &mut input, 0).unwrap() == MutationResult::Skipped {}
+        while mutator.mutate(&mut state, &mut input).unwrap() == MutationResult::Skipped {}
 
         let mut modified = false;
 
-        for b in input.packets[0].bytes() {
+        for b in input.packets[0].as_ref() {
             if *b == 1 {
                 modified = true;
             }
         }
-        for b in input.packets[1].bytes() {
+        for b in input.packets[1].as_ref() {
             if *b == 0 {
                 modified = true;
             }
@@ -511,6 +510,6 @@ mod tests {
             packets: vec![BytesInput::new(vec![0; 4096]), BytesInput::new(vec![1; 4096])],
         };
 
-        b.iter(|| while mutator.mutate(&mut state, &mut input, 0).unwrap() == MutationResult::Skipped {});
+        b.iter(|| while mutator.mutate(&mut state, &mut input).unwrap() == MutationResult::Skipped {});
     }
 }
