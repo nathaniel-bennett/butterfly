@@ -116,8 +116,8 @@ where
                 mgr.fire(
                     state,
                     Event::UpdateUserStats {
-                        name: USER_STAT_STATEGRAPH.to_string(),
-                        value: UserStats::String(state_observer.get_statemachine()),
+                        name: Cow::Borrowed(USER_STAT_STATEGRAPH),
+                        value: UserStats::new(UserStatsValue::String(state_observer.get_statemachine())),
                         phantom: PhantomData,
                     },
                 )?;

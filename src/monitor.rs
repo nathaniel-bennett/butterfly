@@ -177,11 +177,15 @@ where
         self.base.client_stats()
     }
 
-    fn start_time(&mut self) -> Duration {
+    fn start_time(&self) -> Duration {
         self.base.start_time()
     }
 
-    fn display(&mut self, event_msg: String, sender_id: u32) {
+    fn set_start_time(&mut self t: Duration) {
+        self.base.set_start_time(t);
+    }
+
+    fn display(&mut self, event_msg: &str, sender_id: u32) {
         let cur_time = current_time();
 
         if (cur_time - self.last_update).as_secs() >= self.interval {
@@ -196,6 +200,6 @@ where
             }
         }
 
-        self.base.display(event_msg, sender_id);
+        self.base.display(event_msg, ClientId::from(sender_id));
     }
 }
