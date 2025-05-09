@@ -1,7 +1,7 @@
 use crate::event::{USER_STAT_EDGES, USER_STAT_NODES};
 use libafl_bolts::{current_time, format_duration_hms, ClientId};
 use libafl::monitors::Monitor;
-use libafl::monitors::{ClientStats, UserStats, UserStatsValue};
+use libafl::monitors::{ClientStats, UserStatsValue};
 use std::time::Duration;
 
 #[cfg(feature = "graphviz")]
@@ -181,11 +181,11 @@ where
         self.base.start_time()
     }
 
-    fn set_start_time(&mut self t: Duration) {
+    fn set_start_time(&mut self, t: Duration) {
         self.base.set_start_time(t);
     }
 
-    fn display(&mut self, event_msg: &str, sender_id: u32) {
+    fn display(&mut self, event_msg: &str, sender_id: ClientId) {
         let cur_time = current_time();
 
         if (cur_time - self.last_update).as_secs() >= self.interval {
@@ -194,12 +194,12 @@ where
             let mut file = File::create(&self.filename).expect("Failed to open DOT file");
 
             for stats in self.client_stats_mut() {
-                if let Some(UserStats::String(graph)) = stats.get_user_stats(USER_STAT_STATEGRAPH) {
+                if let Some(UserStatsValue::String(graph)) = stats.get_user_stats(USER_STAT_STATEGRAPH).map(|s| s.value()) {
                     writeln!(&mut file, "{}", graph).expect("Failed to write DOT file");
                 }
             }
         }
 
-        self.base.display(event_msg, ClientId::from(sender_id));
+        self.base.display(event_msg, sender_id);
     }
 }

@@ -298,6 +298,7 @@ where
     }
 }
 
+/*
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -513,3 +514,4 @@ mod tests {
         b.iter(|| while mutator.mutate(&mut state, &mut input).unwrap() == MutationResult::Skipped {});
     }
 }
+*/

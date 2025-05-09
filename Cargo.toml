@@ -17,12 +17,12 @@ include = [
 [dependencies]
 libafl = { version = "0.15", git = "https://github.com/nathaniel-bennett/LibAFL", features = ["default", "introspection"] }
 libafl_bolts = { version = "0.15", git = "https://github.com/nathaniel-bennett/LibAFL" }
-pcap = { version = "2.2", features = [] }
+pcap = { version = "2.2" }
 serde = "1.0"
 ahash = "0.7"
 
 [features]
-default = []
+default = ["graphviz"]
 
 # Enables the GraphvizMonitor
 graphviz = []

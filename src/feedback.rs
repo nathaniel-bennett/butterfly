@@ -98,7 +98,7 @@ where
                 state,
                 Event::UpdateUserStats {
                     name: Cow::Borrowed(USER_STAT_NODES),
-                    value: UserStats::new(UserStatsValue::Number(nodes as u64), AggregatorOps::Avg), // TODO: BUG: is AggregatorOps::Avg correct here?
+                    value: UserStats::new(UserStatsValue::Number(nodes as u64), AggregatorOps::Max),
                     phantom: PhantomData,
                 },
             )?;
@@ -106,7 +106,7 @@ where
                 state,
                 Event::UpdateUserStats {
                     name: Cow::Borrowed(USER_STAT_EDGES),
-                    value: UserStats::new(UserStatsValue::Number(edges as u64), AggregatorOps::Avg), // TODO: BUG: is AggregatorOps::Avg correct here?
+                    value: UserStats::new(UserStatsValue::Number(edges as u64), AggregatorOps::Max),
                     phantom: PhantomData,
                 },
             )?;
@@ -117,7 +117,7 @@ where
                     state,
                     Event::UpdateUserStats {
                         name: Cow::Borrowed(USER_STAT_STATEGRAPH),
-                        value: UserStats::new(UserStatsValue::String(state_observer.get_statemachine())),
+                        value: UserStats::new(UserStatsValue::String(Cow::Owned(state_observer.get_statemachine())), AggregatorOps::None),
                         phantom: PhantomData,
                     },
                 )?;

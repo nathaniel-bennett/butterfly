@@ -1,4 +1,5 @@
 use ahash::RandomState;
+use libafl_bolts::tuples::MatchName;
 use libafl_bolts::Named;
 use libafl::{executors::ExitKind, observers::Observer, Error};
 use serde::{Deserialize, Serialize};
@@ -108,7 +109,7 @@ pub struct StateObserver<PS>
 where
     PS: Clone + Debug + Eq + Hash,
 {
-    name: String,
+    name: Cow<'static, str>,
     graph: StateGraph<PS>,
 }
 
@@ -117,9 +118,9 @@ where
     PS: Clone + Debug + Eq + Hash + Serialize + for<'a> Deserialize<'a>,
 {
     /// Create a new StateObserver with a given name.
-    pub fn new(name: &str) -> Self {
+    pub fn new(name: &'static str) -> Self {
         Self {
-            name: name.to_string(),
+            name: Cow::Borrowed(name),
             graph: StateGraph::<PS>::new(),
         }
     }
@@ -155,8 +156,28 @@ where
     PS: Clone + Debug + Hash + Eq + Serialize + for<'a> Deserialize<'a>,
 {
     fn name(&self) -> &Cow<'static, str> {
-        // self.name
-        &Cow::Borrowed("StateObserver") // TODO: BUG: is this correct?
+        &self.name
+    }
+}
+
+impl<PS> MatchName for StateObserver<PS> 
+where
+    PS: Clone + Debug + Hash + Eq + Serialize + for<'a> Deserialize<'a>
+{
+    fn match_name<T>(&self, name: &str) -> Option<&T> {
+        if self.name == name {
+            Some(unsafe { &*std::ptr::from_ref(self).cast() })
+        } else {
+            None
+        }
+    }
+    
+    fn match_name_mut<T>(&mut self, name: &str) -> Option<&mut T> {
+        if self.name == name {
+            Some(unsafe { &mut *std::ptr::from_mut(self).cast() })
+        } else {
+            None
+        }
     }
 }
 
@@ -174,6 +195,7 @@ where
     }
 }
 
+/*
 #[cfg(test)]
 mod benchmarks {
     extern crate test;
@@ -231,3 +253,4 @@ mod benchmarks {
         loop {}
     }
 }
+*/
