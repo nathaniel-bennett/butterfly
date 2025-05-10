@@ -1,7 +1,7 @@
 use crate::event::{USER_STAT_EDGES, USER_STAT_NODES};
 use libafl_bolts::{current_time, format_duration_hms, ClientId};
 use libafl::monitors::Monitor;
-use libafl::monitors::{ClientStats, UserStatsValue};
+use libafl::monitors::stats::{ClientStats, ClientStatsManager, UserStatsValue};
 use std::time::Duration;
 
 #[cfg(feature = "graphviz")]
@@ -17,11 +17,11 @@ use {crate::event::USER_STAT_STATEGRAPH, std::fs::File, std::io::Write, std::pat
 /// and then you can invoke the given functions in `YourMonitor::display()`.
 pub trait HasStateStats: Monitor {
     /// Helper function used by the other functions.
-    fn calculate_average(&mut self, stat: &str) -> UserStatsValue {
+    fn calculate_average(&mut self, stat: &str, manager: &mut ClientStatsManager) -> UserStatsValue {
         let mut sum = UserStatsValue::Number(0);
-        let stats = self.client_stats_mut();
+        let stats = manager.client_stats();
 
-        for client_stat in stats.iter_mut() {
+        for client_stat in stats.iter() {
             if let Some(user_stats) = client_stat.get_user_stats(stat) {
                 sum = sum.stats_add(user_stats.value()).unwrap();
             }
@@ -31,13 +31,13 @@ pub trait HasStateStats: Monitor {
     }
 
     /// Get the average number of vertices in the state-graphs across all instances.
-    fn avg_statemachine_nodes(&mut self) -> UserStatsValue {
-        self.calculate_average(USER_STAT_NODES)
+    fn avg_statemachine_nodes(&mut self, manager: &mut ClientStatsManager) -> UserStatsValue {
+        self.calculate_average(USER_STAT_NODES, manager)
     }
 
     /// Get the average number of edges in the state-graphs across all instances.
-    fn avg_statemachine_edges(&mut self) -> UserStatsValue {
-        self.calculate_average(USER_STAT_EDGES)
+    fn avg_statemachine_edges(&mut self, manager: &mut ClientStatsManager) -> UserStatsValue {
+        self.calculate_average(USER_STAT_EDGES, manager)
     }
 }
 
@@ -62,7 +62,7 @@ impl StateMonitor {
         let mut val = 0;
 
         for client_stat in &self.client_stats {
-            val = std::cmp::max(val, client_stat.corpus_size);
+            val = std::cmp::max(val, client_stat.corpus_size());
         }
 
         val
@@ -72,6 +72,7 @@ impl StateMonitor {
 impl HasStateStats for StateMonitor {}
 
 impl Monitor for StateMonitor {
+    /*
     fn client_stats_mut(&mut self) -> &mut Vec<ClientStats> {
         &mut self.client_stats
     }
@@ -87,19 +88,24 @@ impl Monitor for StateMonitor {
     fn set_start_time(&mut self, start: Duration) {
         self.start_time = start;
     }
+    */
 
-    fn display(&mut self, msg: &str, _sender: ClientId) {
-        let num_nodes = self.avg_statemachine_nodes();
-        let num_edges = self.avg_statemachine_edges();
-        let corpus_size = self.max_corpus_size();
-        let objective_size = self.objective_size();
-        let execs = self.total_execs();
-        let execs_per_sec = self.execs_per_sec();
+    fn display(&mut self,
+        mgr: &mut ClientStatsManager,
+        event_msg: &str,
+        sender_id: ClientId
+    ) {
+        let num_nodes = self.avg_statemachine_nodes(mgr);
+        let num_edges = self.avg_statemachine_edges(mgr);
+        let corpus_size = mgr.client_stats().iter().fold(0u64, |acc, x| acc + x.corpus_size());
+        let objective_size = mgr.client_stats().iter().fold(0u64, |acc, x| acc + x.objective_size());       
+        let execs = mgr.client_stats().iter().fold(0u64, |acc, x| acc + x.executions());
+        let execs_per_sec = execs as f64 / ((current_time() - self.start_time).as_secs() as f64);
         let cores = std::cmp::max(1, self.client_stats.len().saturating_sub(1));
 
         println!(
             "[butterfly::{}] uptime: {} | cores: {} | corpus: {} | objectives: {} | total execs: {} | exec/s: {} | nodes: {} | edges: {}",
-            msg,
+            event_msg,
             format_duration_hms(&(current_time() - self.start_time)),
             cores,
             corpus_size,
@@ -169,6 +175,7 @@ impl<M> Monitor for GraphvizMonitor<M>
 where
     M: Monitor,
 {
+    /*
     fn client_stats_mut(&mut self) -> &mut Vec<ClientStats> {
         self.base.client_stats_mut()
     }
@@ -184,8 +191,13 @@ where
     fn set_start_time(&mut self, t: Duration) {
         self.base.set_start_time(t);
     }
+    */
 
-    fn display(&mut self, event_msg: &str, sender_id: ClientId) {
+    fn display(&mut self,
+        client_stats_manager: &mut ClientStatsManager,
+        event_msg: &str,
+        sender_id: ClientId
+    ) {
         let cur_time = current_time();
 
         if (cur_time - self.last_update).as_secs() >= self.interval {
@@ -193,13 +205,13 @@ where
 
             let mut file = File::create(&self.filename).expect("Failed to open DOT file");
 
-            for stats in self.client_stats_mut() {
+            for stats in client_stats_manager.client_stats() {
                 if let Some(UserStatsValue::String(graph)) = stats.get_user_stats(USER_STAT_STATEGRAPH).map(|s| s.value()) {
                     writeln!(&mut file, "{}", graph).expect("Failed to write DOT file");
                 }
             }
         }
 
-        self.base.display(event_msg, sender_id);
+        self.base.display(client_stats_manager, event_msg, sender_id);
     }
 }

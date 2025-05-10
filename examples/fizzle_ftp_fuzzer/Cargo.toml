@@ -9,8 +9,8 @@ codegen-units = 1
 debug = true
 
 [dependencies]
-libafl = { version = "0.15", git = "https://github.com/nathaniel-bennett/LibAFL", features = ["default", "introspection"] }
-libafl_bolts = { version = "0.15", git = "https://github.com/nathaniel-bennett/LibAFL" }
+libafl = { version = "0.15.2", features = ["default", "introspection"] }
+libafl_bolts = { version = "0.15.2" }
 butterfly = { path = "../../", package = "butterfly-fuzz", features = ["graphviz"] }
 serde = "1.0"
 pcap = { version = "2.2" }

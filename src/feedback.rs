@@ -12,7 +12,7 @@ use libafl::{
     executors::ExitKind,
     feedbacks::{Feedback, StateInitializer},
     inputs::Input,
-    monitors::{AggregatorOps, UserStats, UserStatsValue},
+    monitors::stats::{AggregatorOps, UserStats, UserStatsValue},
     observers::ObserversTuple,
     state::HasClientPerfMonitor,
     Error,

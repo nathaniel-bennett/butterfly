@@ -15,8 +15,8 @@ include = [
 ]
 
 [dependencies]
-libafl = { version = "0.15", git = "https://github.com/nathaniel-bennett/LibAFL", features = ["default", "introspection"] }
-libafl_bolts = { version = "0.15", git = "https://github.com/nathaniel-bennett/LibAFL" }
+libafl = { version = "0.15.2", features = ["default", "introspection"] }
+libafl_bolts = { version = "0.15.2" }
 pcap = { version = "2.2" }
 serde = "1.0"
 ahash = "0.7"
