@@ -647,6 +647,7 @@ fn main() {
         .is_deferred_frksrv(true)
         .is_persistent(true)
         .shmem_provider(&mut shmem_provider)
+//        .target_bytes_converter(target_bytes_converter)
         .coverage_map_size(MAP_SIZE)
     /*
         .program("whoami")
@@ -666,7 +667,6 @@ fn main() {
 //    load_pcaps(&mut state, &mut fuzzer, &mut fizzle_executor, &mut mgr, "pcaps").unwrap();
     
     // Start the campaign
-    // TODO: replace with this to run fuzzing forever
     fuzzer.fuzz_loop(&mut stages, &mut fizzle_executor, &mut state, &mut mgr).unwrap();
 
     

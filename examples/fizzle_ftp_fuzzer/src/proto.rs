@@ -3,7 +3,7 @@ use std::hash::Hash;
 use std::io::Read;
 
 use butterfly::{HasCrossoverInsertMutation, HasCrossoverReplaceMutation, HasHavocMutation, HasPackets, HasPcapRepresentation, HasSpliceMutation};
-use libafl::{inputs::{BytesInput, HasTargetBytes, Input}, mutators::{MutationId, MutationResult, MutatorsTuple}, state::{HasMaxSize, HasRand}};
+use libafl::{inputs::{BytesInput, HasTargetBytes, Input, TargetBytesConverter}, mutators::{MutationId, MutationResult, MutatorsTuple}, state::{HasMaxSize, HasRand}};
 use libafl_bolts::{generic_hash_std, ownedref::OwnedSlice, HasLen};
 use serde::{Deserialize, Serialize};
 
@@ -89,12 +89,12 @@ where
     }
 }
 
-impl<P> HasTargetBytes for Packets<P>
+impl<P> TargetBytesConverter<Packets<P>> for Packets<P>
 where 
     P: PacketProtocol
 {
-    fn target_bytes(&self) -> OwnedSlice<u8> {
-        OwnedSlice::from(self.to_bytes())
+    fn to_target_bytes<'a>(&mut self, input: &'a Packets<P>) -> OwnedSlice<'a, u8> {
+        OwnedSlice::from(input.to_bytes())
     }
 }
 

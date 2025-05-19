@@ -126,4 +126,10 @@ where
 
         Ok(ret)
     }
+
+    #[inline]
+    fn last_result(&self) -> Result<bool, Error> {
+        Ok(false)
+    }
+
 }
